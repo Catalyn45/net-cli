@@ -102,7 +102,7 @@ int get_local_ips(int family, ip_callback_t callback, void* args) {
     *nlh = (struct nlmsghdr){
         .nlmsg_len = buffer_length,
         .nlmsg_type = RTM_GETADDR,
-        .nlmsg_flags = NLM_F_REQUEST | NLM_F_ROOT
+        .nlmsg_flags = NLM_F_REQUEST | NLM_F_ROOT // Use the NLM_F_ROOT flag to get all the entries
     };
 
     // create the payload of the message
@@ -119,14 +119,15 @@ int get_local_ips(int family, ip_callback_t callback, void* args) {
 
     // iterate from every message available
     for (nlh = (void*)recv_buffer; NLMSG_OK(nlh, len); nlh = NLMSG_NEXT(nlh, len)) {
+        // get the pointer to data
         struct ifaddrmsg* ifa = (void*)NLMSG_DATA(nlh);
 
+        // get the payload length
         size_t rta_len = IFA_PAYLOAD(nlh);
 
         // iterate from every attribute of the message
         for (struct rtattr* rta = (void*)IFA_RTA(ifa); RTA_OK(rta, rta_len); rta = RTA_NEXT(rta, rta_len)) {
             // if the attribute is an address, create the structure
-            // and call the callback provided by the user
             if (rta->rta_type == IFA_ADDRESS) {
                 struct ip_entry entry = {
                     .addr = *((struct sockaddr*)RTA_DATA(rta)),
@@ -134,6 +135,7 @@ int get_local_ips(int family, ip_callback_t callback, void* args) {
                     .family = family
                 };
 
+                // call the callback provided by the user
                 callback(&entry, args);
             }
         }
@@ -155,7 +157,7 @@ int get_routes(int family, route_callback_t callback, void* args) {
     *nlh = (struct nlmsghdr){
         .nlmsg_len = buffer_length,
         .nlmsg_type = RTM_GETROUTE,
-        .nlmsg_flags = NLM_F_REQUEST | NLM_F_ROOT
+        .nlmsg_flags = NLM_F_REQUEST | NLM_F_ROOT  // Use the NLM_F_ROOT flag to get all the entries
     };
 
     // create the payload of the message
@@ -172,10 +174,13 @@ int get_routes(int family, route_callback_t callback, void* args) {
 
     // iterate from every message available
     for (nlh = (void*)recv_buffer; NLMSG_OK(nlh, len); nlh = NLMSG_NEXT(nlh, len)) {
+        // get the pointer to data
         struct rtmsg* rtm = (void*)NLMSG_DATA(nlh);
 
+        // get the payload length
         size_t rta_len = RTM_PAYLOAD(nlh);
 
+        // create the entry structure
         struct route_entry entry = {
             .prefix_len = rtm->rtm_dst_len,
             .scope = rtm->rtm_scope,
@@ -184,8 +189,7 @@ int get_routes(int family, route_callback_t callback, void* args) {
 
         // iterate from every attribute of the message
         for (struct rtattr* rta = (void*)RTM_RTA(rtm); RTA_OK(rta, rta_len); rta = RTA_NEXT(rta, rta_len)) {
-            // if the attribute is an address, create the structure
-            // and call the callback provided by the user
+            // poppulate the structure
             if (rta->rta_type == RTA_DST) {
                 entry.dst_addr = *((struct sockaddr*)RTA_DATA(rta));
             } else if (rta->rta_type == RTA_PREFSRC) {
@@ -197,6 +201,7 @@ int get_routes(int family, route_callback_t callback, void* args) {
             }
         }
 
+        // call the callback provided by the user
         callback(&entry, args);
     }
 
