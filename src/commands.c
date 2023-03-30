@@ -28,34 +28,17 @@ static int netlink_route(struct sockaddr_nl* out_sa) {
 }
 
 
-int get_local_ips(int family, ip_callback_t callback, void* args) {
+static unsigned char* query_netlink(void* buffer, size_t length, size_t* out_length) {
+    // create the netlink socket
     struct sockaddr_nl sa;
     int fd = netlink_route(&sa);
     if (fd == -1)
-        return -1;
-
-    // calculate the total buffer length
-    const size_t buffer_length = NLMSG_ALIGN(NLMSG_LENGTH(sizeof(struct ifaddrmsg)));
-    unsigned char buffer[buffer_length];
-
-    // create the header of the message
-    struct nlmsghdr* nlh = (void*)buffer;
-    *nlh = (struct nlmsghdr){
-        .nlmsg_len = buffer_length,
-        .nlmsg_type = RTM_GETADDR,
-        .nlmsg_flags = NLM_F_REQUEST | NLM_F_ROOT
-    };
-
-    // create the payload of the message
-    struct ifaddrmsg* ifa = NLMSG_DATA(nlh);
-    *ifa = (struct ifaddrmsg){
-        .ifa_family = family
-    };
+        return NULL;
 
     // create the iovec structure containing the buffer and length
     struct iovec iov = {
         .iov_base = buffer,
-        .iov_len = buffer_length
+        .iov_len = length
     };
 
     // create the message header structure
@@ -93,7 +76,46 @@ int get_local_ips(int family, ip_callback_t callback, void* args) {
     if (received < 0)
         goto free_buf;
 
-    len = (size_t)received;
+    *out_length = (size_t)received;
+
+    return recv_buffer;
+
+free_buf:
+    free(recv_buffer);
+
+close_fd:
+    close(fd);
+
+    return NULL;
+}
+
+#define MESSAGE_SIZE(message_type) \
+    NLMSG_ALIGN(NLMSG_LENGTH(sizeof(message_type)))
+
+int get_local_ips(int family, ip_callback_t callback, void* args) {
+    // calculate the total buffer length
+    const size_t buffer_length = MESSAGE_SIZE(struct ifaddrmsg);
+    unsigned char buffer[buffer_length];
+
+    // create the header of the message
+    struct nlmsghdr* nlh = (void*)buffer;
+    *nlh = (struct nlmsghdr){
+        .nlmsg_len = buffer_length,
+        .nlmsg_type = RTM_GETADDR,
+        .nlmsg_flags = NLM_F_REQUEST | NLM_F_ROOT
+    };
+
+    // create the payload of the message
+    struct ifaddrmsg* ifa = NLMSG_DATA(nlh);
+    *ifa = (struct ifaddrmsg){
+        .ifa_family = family
+    };
+
+    // query netlink
+    size_t len;
+    void* recv_buffer = query_netlink(buffer, buffer_length, &len);
+    if (recv_buffer == NULL)
+        return -1;
 
     // iterate from every message available
     for (nlh = (void*)recv_buffer; NLMSG_OK(nlh, len); nlh = NLMSG_NEXT(nlh, len)) {
@@ -119,15 +141,65 @@ int get_local_ips(int family, ip_callback_t callback, void* args) {
 
     free(recv_buffer);
 
-    close(fd);
-
     return 0;
+}
 
-free_buf:
+
+int get_routes(int family, route_callback_t callback, void* args) {
+    // calculate the total buffer length
+    const size_t buffer_length = MESSAGE_SIZE(struct rtmsg);
+    unsigned char buffer[buffer_length];
+
+    // create the header of the message
+    struct nlmsghdr* nlh = (void*)buffer;
+    *nlh = (struct nlmsghdr){
+        .nlmsg_len = buffer_length,
+        .nlmsg_type = RTM_GETROUTE,
+        .nlmsg_flags = NLM_F_REQUEST | NLM_F_ROOT
+    };
+
+    // create the payload of the message
+    struct rtmsg* rtm = NLMSG_DATA(nlh);
+    *rtm = (struct rtmsg){
+        .rtm_family = family,
+    };
+
+    // query netlink
+    size_t len;
+    void* recv_buffer = query_netlink(buffer, buffer_length, &len);
+    if (recv_buffer == NULL)
+        return -1;
+
+    // iterate from every message available
+    for (nlh = (void*)recv_buffer; NLMSG_OK(nlh, len); nlh = NLMSG_NEXT(nlh, len)) {
+        struct rtmsg* rtm = (void*)NLMSG_DATA(nlh);
+
+        size_t rta_len = RTM_PAYLOAD(nlh);
+
+        struct route_entry entry = {
+            .prefix_len = rtm->rtm_dst_len,
+            .scope = rtm->rtm_scope,
+            .family = rtm->rtm_family
+        };
+
+        // iterate from every attribute of the message
+        for (struct rtattr* rta = (void*)RTM_RTA(rtm); RTA_OK(rta, rta_len); rta = RTA_NEXT(rta, rta_len)) {
+            // if the attribute is an address, create the structure
+            // and call the callback provided by the user
+            if (rta->rta_type == RTA_DST) {
+                entry.dst_addr = *((struct sockaddr*)RTA_DATA(rta));
+            } else if (rta->rta_type == RTA_PREFSRC) {
+                entry.src_addr = *((struct sockaddr*)RTA_DATA(rta));
+            } else if (rta->rta_type == RTA_GATEWAY) {
+                entry.gtw_addr = *((struct sockaddr*)RTA_DATA(rta));
+            } else if (rta->rta_type == RTA_OIF) {
+                entry.output_interface = *((int*)RTA_DATA(rta));
+            }
+        }
+
+        callback(&entry, args);
+    }
+
     free(recv_buffer);
-
-close_fd:
-    close(fd);
-
-    return -1;
+    return 0;
 }
