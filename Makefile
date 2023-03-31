@@ -4,7 +4,7 @@ TESTNAME=$(PROJNAME)_test
 CC=clang
 CXX=clang++
 
-CFLAGS=-fPIC -g -Wall -Wextra -Werror -Winline -MD
+CFLAGS=-fPIC -g3 -Wall -Wextra -Werror -Winline -MD
 
 LIBS=-lpthread
 TEST_LIBS=-lgtest -lgtest_main

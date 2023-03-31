@@ -1,10 +1,13 @@
-#include <stdlib.h>
 #include <stdio.h>
-#include <argp.h>
 #include <string.h>
 
 #include "commands.h"
 #include "print_hooks.h"
+
+
+#define print_usage() \
+    printf("usage: %s [-6] ips | routes | interfaces\n", argv[0]);
+
 
 int main(int argc, char *argv[]) {
     int family = AF_INET;
@@ -14,6 +17,9 @@ int main(int argc, char *argv[]) {
         if(argv[i][0] == '-') {
             if(argv[i][1] == '6') {
                 family = AF_INET6;
+            } else if(argv[i][1] == 'h') {
+                print_usage();
+                return -1;
             }
         } else {
             command = argv[i];
@@ -26,11 +32,14 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(command, "routes") == 0) {
         res = get_routes(family, route_callback, NULL);
     } else if (strcmp(command, "interfaces") == 0) {
-
+        res = get_links(link_callback, NULL);
+    } else {
+        print_usage();
+        return -1;
     }
 
     if (res != 0) {
-        puts("error");
+        fprintf(stderr, "error running command");
         return -1;
     }
 

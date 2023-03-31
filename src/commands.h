@@ -3,10 +3,11 @@
 
 #include <sys/socket.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 struct ip_entry {
     struct sockaddr addr;
-    uint16_t index;
+    uint16_t output_interface;
     int family;
 };
 
@@ -33,5 +34,18 @@ typedef int (*route_callback_t)(struct route_entry* entry, void* args);
 
 // all routes
 int get_routes(int family, route_callback_t callback, void* args);
+
+struct link_entry {
+    unsigned char mac_address[6];
+    int output_interface;
+    unsigned int mtu;
+    bool up;
+    int device_type;
+};
+
+typedef int (*link_callback_t)(struct link_entry* entry, void* args);
+
+// all interfaces
+int get_links(link_callback_t callback, void* args);
 
 #endif
